@@ -1,0 +1,46 @@
+@baseUrl = http://localhost:61462
+@userName = merchant
+@password = REPLACE_WITH_LOCAL_SEED_PASSWORD
+@token = PASTE_ACCESS_TOKEN_HERE
+@stockId = 1
+
+### Sign in, then paste access_token into the token variable above.
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "UserName": "{{userName}}",
+  "Password": "{{password}}"
+}
+
+### List stock.
+GET {{baseUrl}}/api/stock
+Authorization: Bearer {{token}}
+
+### Read one stock record.
+GET {{baseUrl}}/api/stock/{{stockId}}
+Authorization: Bearer {{token}}
+
+### Create a stock record. Copy the returned Id into stockId before updating or deleting.
+POST {{baseUrl}}/api/stock
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "Sku": "HAT-001",
+  "Quantity": 10
+}
+
+### Update the created stock record.
+PUT {{baseUrl}}/api/stock/{{stockId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "Sku": "HAT-001",
+  "Quantity": 20
+}
+
+### Delete the created stock record.
+DELETE {{baseUrl}}/api/stock/{{stockId}}
+Authorization: Bearer {{token}}
