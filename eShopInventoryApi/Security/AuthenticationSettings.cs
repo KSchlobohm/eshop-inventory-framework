@@ -1,0 +1,71 @@
+using System;
+using System.Configuration;
+using eShopInventoryApi.App_Start;
+using Microsoft.IdentityModel.Tokens;
+
+namespace eShopInventoryApi.Security
+{
+    public class AuthenticationSettings
+    {
+        public string Issuer { get; private set; }
+        public string Audience { get; private set; }
+        public SymmetricSecurityKey SigningKey { get; private set; }
+        public string SeedUserName { get; private set; }
+        public string SeedPassword { get; private set; }
+
+        public static AuthenticationSettings Load()
+        {
+            byte[] key;
+            try
+            {
+                key = Convert.FromBase64String(Required("JwtSigningKey"));
+            }
+            catch (FormatException ex)
+            {
+                throw new ConfigurationErrorsException("JwtSigningKey must be Base64 encoded.", ex);
+            }
+
+            if (key.Length < 32)
+            {
+                throw new ConfigurationErrorsException("JwtSigningKey must contain at least 32 random bytes.");
+            }
+
+            var seedPassword = Required("SeedPassword");
+            var passwordResult = IdentityConfig.CreatePasswordValidator()
+                .ValidateAsync(seedPassword).GetAwaiter().GetResult();
+            if (!passwordResult.Succeeded)
+            {
+                throw new ConfigurationErrorsException(
+                    "Invalid SeedPassword in AppSettings.local.config: " +
+                    string.Join("; ", passwordResult.Errors));
+            }
+
+            var seedUserName = Required("SeedUserName");
+            if (seedUserName.Length > 256)
+            {
+                throw new ConfigurationErrorsException(
+                    "SeedUserName in AppSettings.local.config must be at most 256 characters.");
+            }
+
+            return new AuthenticationSettings
+            {
+                Issuer = Required("JwtIssuer"),
+                Audience = Required("JwtAudience"),
+                SigningKey = new SymmetricSecurityKey(key),
+                SeedUserName = seedUserName,
+                SeedPassword = seedPassword
+            };
+        }
+
+        private static string Required(string name)
+        {
+            var value = ConfigurationManager.AppSettings[name];
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ConfigurationErrorsException(
+                    "Set " + name + " in AppSettings.local.config before starting the Inventory API.");
+            }
+            return value;
+        }
+    }
+}
