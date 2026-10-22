@@ -56,7 +56,14 @@ namespace eShopInventoryApi.Controllers
 
             stock.Sku = request.Sku;
             stock.Quantity = request.Quantity.Value;
-            await db.SaveChangesAsync();
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (System.Data.Entity.Infrastructure.DbUpdateConcurrencyException)
+            {
+                return NotFound();
+            }
             return StatusCode(HttpStatusCode.NoContent);
         }
 
@@ -68,7 +75,14 @@ namespace eShopInventoryApi.Controllers
                 return NotFound();
 
             db.Stock.Remove(stock);
-            await db.SaveChangesAsync();
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (System.Data.Entity.Infrastructure.DbUpdateConcurrencyException)
+            {
+                return NotFound();
+            }
             return StatusCode(HttpStatusCode.NoContent);
         }
 
