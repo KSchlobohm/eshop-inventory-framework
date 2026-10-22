@@ -40,12 +40,19 @@ namespace eShopInventoryApi.Security
                     string.Join("; ", passwordResult.Errors));
             }
 
+            var seedUserName = Required("SeedUserName");
+            if (seedUserName.Length > 256)
+            {
+                throw new ConfigurationErrorsException(
+                    "SeedUserName in AppSettings.local.config must be at most 256 characters.");
+            }
+
             return new AuthenticationSettings
             {
                 Issuer = Required("JwtIssuer"),
                 Audience = Required("JwtAudience"),
                 SigningKey = new SymmetricSecurityKey(key),
-                SeedUserName = Required("SeedUserName"),
+                SeedUserName = seedUserName,
                 SeedPassword = seedPassword
             };
         }
