@@ -1,5 +1,6 @@
 using System;
 using System.Configuration;
+using eShopInventoryApi.App_Start;
 using Microsoft.IdentityModel.Tokens;
 
 namespace eShopInventoryApi.Security
@@ -29,13 +30,23 @@ namespace eShopInventoryApi.Security
                 throw new ConfigurationErrorsException("JwtSigningKey must contain at least 32 random bytes.");
             }
 
+            var seedPassword = Required("SeedPassword");
+            var passwordResult = IdentityConfig.CreatePasswordValidator()
+                .ValidateAsync(seedPassword).GetAwaiter().GetResult();
+            if (!passwordResult.Succeeded)
+            {
+                throw new ConfigurationErrorsException(
+                    "Invalid SeedPassword in AppSettings.local.config: " +
+                    string.Join("; ", passwordResult.Errors));
+            }
+
             return new AuthenticationSettings
             {
                 Issuer = Required("JwtIssuer"),
                 Audience = Required("JwtAudience"),
                 SigningKey = new SymmetricSecurityKey(key),
                 SeedUserName = Required("SeedUserName"),
-                SeedPassword = Required("SeedPassword")
+                SeedPassword = seedPassword
             };
         }
 

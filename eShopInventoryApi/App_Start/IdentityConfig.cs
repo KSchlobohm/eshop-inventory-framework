@@ -15,8 +15,13 @@ namespace eShopInventoryApi.App_Start
             {
                 AllowOnlyAlphanumericUserNames = false
             };
-            manager.PasswordValidator = new PasswordValidator { RequiredLength = 6 };
+            manager.PasswordValidator = CreatePasswordValidator();
             return manager;
+        }
+
+        public static PasswordValidator CreatePasswordValidator()
+        {
+            return new PasswordValidator { RequiredLength = 6 };
         }
     }
 }

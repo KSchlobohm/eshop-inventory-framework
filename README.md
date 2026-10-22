@@ -37,7 +37,8 @@ $rng.Dispose()
 [Convert]::ToBase64String($key)
 ```
 
-Local settings are ignored by Git. Missing required settings fail startup.
+Local settings are ignored by Git. Missing required settings or an invalid
+seed password fail startup before database initialization.
 On first startup, Entity Framework creates the `eShopInventoryApi` database
 with three stock records and a user created through ASP.NET Identity's
 `UserManager`. Identity stores the hashed password in its standard EF-backed
@@ -46,8 +47,10 @@ The database is preserved thereafter; changing seed credentials in the local
 settings does not update an existing user.
 
 The initializer does not migrate or drop existing databases. If an older
-sample schema already exists, choose a fresh database name in the
-`InventoryContext` connection string in `Web.config`.
+sample schema already exists or an earlier failed seed left a database without
+a user, choose a fresh database name in the `InventoryContext` connection string
+in `Web.config` after correcting the settings. Restarting does not rerun seeding
+for an existing database.
 
 ## API
 
