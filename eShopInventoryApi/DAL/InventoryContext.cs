@@ -6,7 +6,7 @@ namespace eShopInventoryApi.DAL
 {
     public class InventoryContext : IdentityDbContext<ApiUser>
     {
-        public InventoryContext() : base("name=InventoryContext")
+        public InventoryContext() : base("name=InventoryContext", throwIfV1Schema: false)
         {
         }
 
