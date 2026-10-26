@@ -276,7 +276,7 @@ does not prove compatibility with personal or historical databases.
 
 ## Step 1: Manual API examples -> repeatable API characterization checks
 
-**Status:** pending
+**Status:** done
 
 **Source:** `Inventory.http` contains manual requests without assertions.
 
@@ -334,7 +334,164 @@ setup and cleanup are repeatable. Record per-scenario expected/actual outcomes.
 If baseline hosting remains unavailable, validate the script's syntax and
 record live execution as inconclusive; do not make baseline availability a
 prerequisite for Step 2. The unchanged legacy application must still build and
-run where its prerequisites are available. Observed results: pending.
+run where its prerequisites are available.
+
+### Step 1 execution evidence (2026-10-26)
+
+**Outcome:** Added the distinct PowerShell 7 approval-gate suite at
+`tests\smoke\Invoke-InventorySmoke.ps1` and documented prerequisites, inputs,
+and invocation in `README.md`. Two complete executions against the real,
+unchanged .NET Framework application passed all **37 scenario groups each**,
+with exit code `0` and verified cleanup. No application source, project,
+solution, packages, or `Inventory.http` changes were made. No migration,
+new test platform, CI, push, or PR belongs to this step.
+
+**Revision and environment:** Verified
+`git merge-base --is-ancestor 6eafe55e72d1aaf129d582fc8000475446e6bb6a HEAD`
+returned `0` before work. Validation used that predecessor application,
+Windows, PowerShell 7.6.9, Visual Studio 18 MSBuild, SQLCMD, LocalDB, and
+64-bit IIS Express. Worktree:
+`C:\dev\work\copilot-worktrees\eshop-inventory-framework\kschlobohm-refactored-train`;
+branch `kschlobohm-step-1-api-characterization`.
+
+**Isolation and secrets:** Reused only the explicitly approved Step 0 fixture:
+instance `eShopBaseline_1fab2809`, database
+`eShopBaseline_1fab2809_20261026`. Securely copied only the approved ignored
+`AppSettings.local.config` into this worktree; no values were printed or
+committed. Loaded credentials, signing material, issuer, and audience into
+the suite's documented process environment. Temporarily selected exactly
+Step 0's isolated connection string in this worktree's `Web.config`, checked
+it before host startup, and restored that edit after stopping the host.
+The personal `MSSQLLocalDB` database was never contacted.
+
+Confirmed port `61462` was unused before starting this worktree's IIS Express
+process, PID `20764`. Readiness returned anonymous `401`. The suite checked
+the absolute application directory in the host command line, the registered
+HTTP.sys URL/request queue and its attached PID, the configured connection
+string, and SQL `DB_NAME()` before its HTTP requests. It permits only loopback
+URLs and dedicated named `eShopBaseline_`/`eShopSmoke_` LocalDB fixtures.
+Each request uses a bounded 30-second timeout and disallows redirects.
+
+**Exact command sequence:** Run from this worktree root. Environment inputs
+were populated as documented in the README; no password or signing material
+was supplied on a command line.
+
+```powershell
+git merge-base --is-ancestor 6eafe55e72d1aaf129d582fc8000475446e6bb6a HEAD
+nuget restore .\eShopInventory.sln -NonInteractive -Verbosity quiet
+msbuild .\eShopInventory.sln /t:Build /p:Configuration=Debug /p:VisualStudioVersion=18.0 /verbosity:minimal /nologo
+git check-ignore eShopInventoryApi\AppSettings.local.config
+SqlLocalDB start eShopBaseline_1fab2809
+sqlcmd -S '(LocalDB)\eShopBaseline_1fab2809' -d eShopBaseline_1fab2809_20261026 -E -l 15 -t 15 -b -Q 'SET NOCOUNT ON; SELECT Id,Sku,Quantity FROM dbo.StockRecords ORDER BY Id; SELECT COUNT(*) AS UserCount FROM dbo.AspNetUsers;'
+# After selecting and guarding the isolated connection:
+& 'C:\Program Files\IIS Express\iisexpress.exe' "/path:$PWD\eShopInventoryApi" /port:61462
+# In the configured validation shell, once the host is ready:
+pwsh -NoProfile -File .\tests\smoke\Invoke-InventorySmoke.ps1 -BaseUrl http://localhost:61462
+pwsh -NoProfile -File .\tests\smoke\Invoke-InventorySmoke.ps1 -BaseUrl http://localhost:61462
+sqlcmd -S '(LocalDB)\eShopBaseline_1fab2809' -d eShopBaseline_1fab2809_20261026 -E -l 15 -t 15 -b -Q "SET NOCOUNT ON; SELECT Id,Sku,Quantity FROM dbo.StockRecords ORDER BY Id; SELECT COUNT(*) AS SuiteRowsRemaining FROM dbo.StockRecords WHERE Sku LIKE 'SMOKE-%'; SELECT COUNT(*) AS UserCount, SUM(CASE WHEN PasswordHash IS NOT NULL THEN 1 ELSE 0 END) AS UsersWithStoredPasswordHash FROM dbo.AspNetUsers; SELECT IDENT_CURRENT('dbo.StockRecords') AS LastStockIdentity;"
+```
+
+Restore/build succeeded with no warning/error output and emitted the original
+application DLL. Two initial script-development invocations exited `1`
+before completing preflight and before any HTTP scenario or write: a
+PowerShell dictionary adapter interpreted the connection builder's property
+assignment as a dictionary key, and the original error reporter itself assumed
+an unavailable `Name` property. Corrected the harness to use
+`set_ConnectionString` and safe typed/line-number reporting. No application
+assertion was relaxed, skipped, retried to manufacture a pass, or reclassified
+as inconclusive. Subsequent complete runs used the same corrected script.
+
+**Per-scenario expected/actual results:** Every row below passed in **both**
+complete runs. `JSON` includes the exact
+`application/json; charset=utf-8` content type. `Empty` includes zero body
+length and absence of `Content-Type`. Error objects and stock/login objects
+assert exact, case-sensitive property sets, not alternative casing.
+
+| Scenario | Required expectation | Run 1 actual | Run 2 actual |
+| --- | --- | --- | --- |
+| Host/database preflight | Intended own host and isolated DB before writes | Verified | Verified |
+| Valid Identity login | `200` JSON; `access_token` string JWT, `token_type` string `Bearer`, integer `expires_in=1800` | Exact match | Exact match |
+| Authorized stock list | `200` JSON array; ascending unique positive integer `Id`, string `Sku`, nonnegative integer `Quantity` | Exact match, three seeds | Exact match, three seeds |
+| Missing ID GET/PUT/DELETE | Each `404`, empty; sentinel `-2147483648` | All match | All match |
+| Wrong login password | `401`, empty | Exact match | Exact match |
+| Null login | `400`, only `Message: A login request is required.` | Exact match | Exact match |
+| Malformed login `{` | Same null-request `400` envelope | Exact match | Exact match |
+| Missing login fields `{}` | `400`, `Message: The request is invalid.`, exact required-field arrays under `request.UserName` and `request.Password` | Exact match | Exact match |
+| Invalid login username, length 257 | `400`, same validation Message; `request.UserName: ["The field UserName must be a string with a maximum length of 256."]` | Exact match | Exact match |
+| Anonymous GET list, GET item, POST, PUT, DELETE | All five `401` JSON; only `Message: Authorization has been denied for this request.`; Bearer challenge | All match | All match |
+| Locally signed valid JWT control | `200` authorized list; validates supplied key/issuer/audience for negative-token controls | Match | Match |
+| Malformed JWT | `401`, same exact anonymous JSON Message and Bearer challenge | Exact match | Exact match |
+| Expired JWT | Same `401`; expiration 120 seconds ago, beyond 30-second skew | Exact match | Exact match |
+| Wrong-signature JWT | Same `401`; fresh unrelated random key | Exact match | Exact match |
+| Wrong-issuer JWT | Same `401`; otherwise valid signature/audience/lifetime | Exact match | Exact match |
+| Wrong-audience JWT | Same `401`; otherwise valid signature/issuer/lifetime | Exact match | Exact match |
+| Create unique fixture | `201` JSON; exact typed `Id/Sku/Quantity`; same-origin usable `/api/stock/{id}` Location; subsequent GET confirms SKU and quantity 7 | Exact match, ID 6 | Exact match, ID 7 |
+| POST and PUT null stock | Each `400`, only `Message: A stock record is required.`; no persisted change | Both match | Both match |
+| POST and PUT malformed `{` | Each same null-stock `400` envelope, not parser details; no persisted change | Both match | Both match |
+| POST and PUT missing fields `{}` | Each `400`, validation Message; `request.Sku: ["The Sku field is required."]`, `request.Quantity: ["The Quantity field is required."]`; no persisted change | Both match | Both match |
+| POST and PUT empty SKU plus negative quantity | Each `400`, exact Step 0 validation envelope; no persisted change | Both match | Both match |
+| POST and PUT SKU length 65 | Each `400`, validation Message; `request.Sku: ["The field Sku must be a string with a maximum length of 64."]`; no persisted change | Both match | Both match |
+| POST and PUT quantity -1 | Each `400`, validation Message; `request.Quantity: ["The field Quantity must be between 0 and 2147483647."]`; no persisted change | Both match | Both match |
+| XML Accept list | `200`, JSON content type and same typed array as JSON Accept | Exact match | Exact match |
+| Valid update | `204`, empty; subsequent GET confirms changed unique SKU and quantity 9 | Exact match | Exact match |
+| Delete fixture | `204`, empty; subsequent GET `404`, empty | Exact match | Exact match |
+| Final list and finally cleanup | Exact pre-run list preserved; no run-owned SKUs remain | Match; cleanup pass | Match; cleanup pass |
+
+Validation Message and ModelState arrays also assert their JSON string/array
+types. Every invalid stock write is followed by a read confirming the fixture's
+original SKU/quantity and a list count check. The suite generates fresh
+`SMOKE-<guid>` fixture SKUs per invocation, does not assume the next identity,
+and its `finally` cleanup selects only exact run-owned SKUs. Cleanup failure
+also exits nonzero and identifies only the run's nonsecret SKU prefix.
+
+**Expectation provenance:** Step 0 supplied the observed login, anonymous GET,
+list/read/create/update/delete, null/missing login, null/invalid/malformed
+stock, empty-response, content-type, Location, and XML-fallback contracts.
+The expanded anonymous-verbs/JWT matrix, missing PUT/DELETE, malformed and
+overlong login, missing quantity, overlong SKU, PUT validation envelopes,
+and Bearer challenge initially used source-derived expectations from the
+controllers, DTO annotations, and `Startup.cs`. These expectations were not
+claimed as prior observations; both executions now provide live evidence
+for them. No application behavior contradicted a required assertion.
+
+**Cleanup and handoff:** SQL independently confirmed exactly the original
+three rows (`1/MUG-001/25`, `2/TEE-001/40`, `3/BAG-001/15`), zero `SMOKE-%`
+rows, one Identity user, and one non-null stored password hash. The two suite
+fixtures, IDs `6` and `7`, were deleted; last identity is `7`, not the next ID.
+No database was dropped, reset, reseeded, or deleted. Stopped only this
+session's own IIS Express process tree (`step1-iis`), verified no listener
+remained, and stopped the retained named LocalDB instance. The fixture and
+ignored local settings remain available for the next step; explicitly restore
+the isolated connection before launching any subsequent validation host.
+The default connection string was restored without launching against it.
+Final verification commands below also returned `0`; the restored unchanged
+application rebuilt successfully, the script parsed without errors, and
+`git status --short` showed only the three intended deliverable paths.
+
+```powershell
+# After stopping only the owned host process tree:
+Get-NetTCPConnection -LocalPort 61462 -State Listen -ErrorAction SilentlyContinue
+Get-Process -Id 20764 -ErrorAction SilentlyContinue
+# Both queries above returned no results.
+SqlLocalDB stop eShopBaseline_1fab2809
+git diff --exit-code -- eShopInventoryApi
+msbuild .\eShopInventory.sln /t:Build /p:Configuration=Debug /p:VisualStudioVersion=18.0 /verbosity:minimal /nologo
+git diff --check
+$parseErrors = $null
+$tokens = $null
+[void][System.Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $PWD 'tests\smoke\Invoke-InventorySmoke.ps1'),
+    [ref]$tokens, [ref]$parseErrors)
+# $parseErrors.Count was 0.
+```
+
+**Remaining unverified behavior:** No .NET 10 migration or runtime/database
+compatibility check, startup-failure matrix, historical/personal database,
+load/concurrency, or exhaustive validation/security check belongs to this
+step. Mid-run assertion/transport failure cleanup is implemented in `finally`
+but was not deliberately fault-injected; both actual runs exercised successful
+cleanup and verified absence. Database shape/password-hash compatibility and
+future fast tests remain later-step work.
 
 ## Step 2: .NET Framework 4.8 Web API 2 -> ASP.NET Core on .NET 10
 
