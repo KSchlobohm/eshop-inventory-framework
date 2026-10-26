@@ -169,6 +169,13 @@ try {
         [xml]$config = Get-Content -LiteralPath $webConfig -Raw
         $configuredConnection = [string]($config.configuration.connectionStrings.add | Where-Object name -eq InventoryContext).connectionString
     }
+    elseif (Test-Path -LiteralPath (Join-Path $appRoot 'eShopInventoryApi.dll.config')) {
+        $dll = Join-Path $appRoot 'eShopInventoryApi.dll'
+        $exe = Join-Path $appRoot 'eShopInventoryApi.exe'
+        Assert-That ($process.CommandLine.IndexOf($dll, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or $process.CommandLine.IndexOf($exe, [StringComparison]::OrdinalIgnoreCase) -ge 0) 'Executable configuration must belong to the actual compiled application process.'
+        [xml]$config = Get-Content -LiteralPath ($dll + '.config') -Raw
+        $configuredConnection = [string]($config.configuration.connectionStrings.add | Where-Object name -eq InventoryContext).connectionString
+    }
     else {
         $config = Get-Content -LiteralPath (Join-Path $appRoot 'appsettings.json') -Raw | ConvertFrom-Json -AsHashtable
         $configuredConnection = $config.ConnectionStrings.InventoryContext

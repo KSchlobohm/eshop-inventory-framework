@@ -495,7 +495,7 @@ future fast tests remain later-step work.
 
 ## Step 2: .NET Framework 4.8 Web API 2 -> ASP.NET Core on .NET 10
 
-**Status:** pending
+**Status:** done
 
 **Source:** The current web project, System.Web Web API host, OWIN bearer
 middleware, EF6, and legacy ASP.NET Identity.
@@ -615,7 +615,141 @@ Run against isolated fresh and existing-database cases. Demonstrate failure
 paths in separate process launches without weakening gates or altering real
 credentials. Record build/test output, sanitized HTTP assertions, database
 preservation observations, and any package compatibility limitations.
-Stop only processes started for validation. Observed results: pending.
+Stop only processes started for validation. Observed results are recorded below.
+
+### Step 2 execution evidence (2026-10-26)
+
+**Outcome:** Converted the existing application project in place to
+`Microsoft.NET.Sdk.Web` / `net10.0` and Kestrel. Debug restore/build succeeded,
+all **29 fast MSTest cases passed**, the saved real-host suite passed all
+**37 scenario groups with cleanup**, and the existing/fresh database,
+restart, executable-configuration, and **10 startup-failure gates** passed.
+Step 3 remains pending; its Release build and two final smoke runs were not
+performed here. No session, replacement app, schema migration, push, or PR
+was created.
+
+**Revision and scope:** Verified
+`git merge-base --is-ancestor f49e7fc1aaea41692060f34d44bd6cc0901fd7d4 HEAD`
+returned `0` before editing. Worktree:
+`C:\dev\work\copilot-worktrees\eshop-inventory-framework\kschlobohm-legendary-fiesta`;
+branch `kschlobohm-step-2-dotnet-10-migration`. Kept the existing solution and
+application project, original `AssemblyInfo.cs`, DTOs, Identity configuration,
+EF6 context/initializer, and manual `Inventory.http`. Added only the planned
+MSTest project to the solution. Removed obsolete OWIN/Web API registration,
+`packages.config`, assembly hint paths, and source `Web.config`.
+
+`Program.cs` explicitly selects the adjacent `eShopInventoryApi.dll.config`
+before reading settings or initializing EF6. The SDK builds that executable
+configuration from `App.config`, and conditionally copies the ignored local
+XML alongside it. Native JwtBearer retains HS256, issuer/audience, required
+signature/expiry, and 30-second skew; login retains its original claims and
+30-minute expiry. A shared controller helper retains validation envelopes
+and `request.*` keys. Newtonsoft/default contract resolution preserves casing;
+no `[ApiController]` automatic ProblemDetails responses are introduced.
+Global authenticated access exempts only the anonymous login action.
+The saved suite changed only its host/configuration preflight to recognize
+the actual compiled executable XML; all HTTP assertions remain unchanged.
+
+**Fixed packages and actual restored assets:**
+
+| Package | Version | Selected assets / reason |
+| --- | --- | --- |
+| EntityFramework | 6.4.4 | Existing version; `netstandard2.1` EF6 and SQL Server provider |
+| Microsoft.AspNet.Identity.Core | 2.2.3 | Existing `net45` user manager, validators, password hasher |
+| Microsoft.AspNet.Identity.EntityFramework | 2.2.3 | Existing `net45` user store and schema mappings |
+| Microsoft.AspNetCore.Authentication.JwtBearer | 10.0.14 | `net10.0` native host authentication |
+| Microsoft.AspNetCore.Mvc.NewtonsoftJson | 10.0.14 | `net10.0` serializer integration |
+| System.Configuration.ConfigurationManager | 10.0.0 | Executable XML configuration |
+| System.Data.SqlClient | 4.8.6 | Explicit EF6 provider dependency; `netcoreapp2.1` reference/runtime plus Windows runtime asset |
+| Microsoft.NET.Test.Sdk | 18.10.1 | Test project only |
+| MSTest.TestAdapter / MSTest.TestFramework | 4.4.1 | Test project only |
+
+Host packages resolve `System.IdentityModel.Tokens.Jwt` **8.19.2** and
+Newtonsoft.Json **13.0.3** transitively. Inspected `obj\project.assets.json`,
+not just package framework listings. EF6's unconstrained restore initially
+selected SqlClient 4.8.1 and reported NU1902/NU1903 advisories; pinning 4.8.6
+removed those diagnostics without changing provider/schema. The only final
+build warnings are the two retained Identity packages' **NU1701** warnings
+(reported for both projects). They are not suppressed. Runtime tests below
+demonstrate this application's exercised paths, **not supported modern
+targeting or comprehensive compatibility for those Framework-only packages**.
+No OWIN bridge, fork, custom Identity implementation, or password conversion
+was needed.
+
+**Commands and environment:** Windows; .NET SDK **10.0.403**, installed .NET /
+ASP.NET Core **10.0.14** runtime, PowerShell **7.6.9**, SQLCMD, and the retained
+LocalDB **17.0.4025.3** instance. NuGet used the already configured
+`azure-default` package-feed proxy. Direct `api.nuget.org` metadata probes
+failed TLS negotiation; the configured proxy and actual restore worked.
+
+```powershell
+dotnet restore .\eShopInventory.sln --verbosity minimal
+dotnet build .\eShopInventory.sln --no-restore -c Debug --verbosity minimal
+dotnet test .\tests\eShopInventoryApi.Tests\eShopInventoryApi.Tests.csproj -c Debug --no-build --no-restore --logger 'console;verbosity=normal'
+# After securely copying only the approved ignored fixture settings:
+dotnet build .\eShopInventory.sln --no-restore -c Debug --verbosity quiet
+SqlLocalDB start eShopBaseline_1fab2809
+# Temporarily select only the isolated fixture in the compiled XML.
+dotnet <absolute-worktree>\eShopInventoryApi\bin\Debug\net10.0\eShopInventoryApi.dll --urls http://localhost:61462
+pwsh -NoProfile -File .\tests\smoke\Invoke-InventorySmoke.ps1 -BaseUrl http://localhost:61462
+# Stop the direct host before testing the other entry point:
+dotnet run --project <absolute-worktree>\eShopInventoryApi\eShopInventoryApi.csproj --no-build --no-restore --urls http://localhost:61462
+# Separate stopped-host configuration changes select the fresh/gate databases.
+```
+
+The live orchestration script and redirected host diagnostics are session
+artifacts, not application or committed test infrastructure. An initial
+orchestration invocation stopped during readiness polling because a normal
+two-second HTTP timeout was not handled by its polling loop. No application
+assertion or saved-suite scenario had run. Cleanup stopped that owned process
+and instance. Corrected only the polling loop to handle timeout cancellation
+within its bounded retry window; the next invocation completed every gate.
+No failed application assertion was relaxed, skipped, or called inconclusive.
+
+**Observed acceptance results:**
+
+| Gate | Expected / actual |
+| --- | --- |
+| Fast tests, independent of LocalDB | 29/29 passed: legacy Identity V2 hasher and six-character policy, required/invalid settings and username limits, DTO boundaries, JSON/envelopes, JWT policy/claims/skew and rejected expiry/issuer/audience/signature/algorithm/missing expiry |
+| Existing direct-DLL host | PID 20964; readiness `401`, actual legacy-user login `200`; output XML used while working directory was repository root |
+| Saved suite | 37/37 passed: exact login/error/type/casing/header contracts, all anonymous verbs, negative JWT controls, CRUD and read-back, all validation cases, XML Accept JSON fallback, original-list snapshot and finally cleanup |
+| Existing database preservation | SQL SHA-256 fingerprints of table/column definitions and the complete stored Identity user record (including hash) matched before/after; exact original stock snapshot matched; fingerprints and secrets were not printed |
+| Existing restart / changed seeds | `dotnet run` listener PID 18716 was its verified child; changed seed username/password did not reseed stock or change existing user/hash; original credentials still logged in |
+| Fresh database | `eShopSmoke_Step2_fc95572d56` was absent beforehand, then seeded exactly `1/MUG-001/25`, `2/TEE-001/40`, `3/BAG-001/15` and an Identity-created user; real login `200` |
+| Fresh restart / persistence | Created one unique `STEP2-<guid>` stock row with quantity 17; after stop/restart with changed seed settings it and the original user/hash remained unchanged; original login worked; deleted only that created row |
+| Missing external XML / missing signing key | Each exited nonzero with settings `ConfigurationErrorsException`; no listener and gate DB still absent |
+| Invalid Base64 / short signing key | Each same fail-before-database/listening result |
+| Missing issuer / missing audience | Each same fail-before-database/listening result |
+| Short / missing seed password | Each same fail-before-database/listening result |
+| Missing / 257-character seed username | Each same fail-before-database/listening result |
+
+**Fixture provenance and cleanup:** Securely copied only the explicitly
+approved ignored Step 1 `AppSettings.local.config`; no secret was printed,
+passed as a command-line password, or committed. Reused the original legacy
+fixture on `(LocalDB)\eShopBaseline_1fab2809`, database
+`eShopBaseline_1fab2809_20261026`, with original three stocks and original
+Identity user/hash created by the Framework host. The smoke run's record
+was removed and the exact prior stock list verified; identity sequence
+advancement is expected, so do not assume a next stock ID.
+No schema or user/password conversion occurred.
+
+The separate fresh database above remains available; its temporary stock row
+was deleted. Startup checks used the distinct
+`eShopSmoke_Step2_fc95572d56_gates`, which remained nonexistent throughout all
+10 checks. No database was dropped, reset, or deleted. No connection was made
+to personal `MSSQLLocalDB`. Stopped only owned host PIDs and the named instance
+started for this validation; verified port 61462 has no remaining listener
+and the named instance is stopped. Restored the output XML and ignored
+settings after validation, retaining the source default connection without
+ever launching against it. Future validation must explicitly select the
+isolated fixture again before starting.
+
+**Limitations and remaining work:** No original unexpired legacy JWT was
+retained, so cross-host validation of an already-issued legacy token is
+**unverified**, not passed. JWT claim semantics and locally signed controls
+were exercised. Identity 2.2.3 remains Framework-only with NU1701; the tested
+Windows/EF6 paths work, but no broader platform/support claim is made.
+Release validation and two final saved-suite runs belong only to Step 3.
 
 ## Step 3: Migrated API -> Run AI-assisted smoke testing
 

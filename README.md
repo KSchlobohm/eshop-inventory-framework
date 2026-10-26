@@ -1,11 +1,11 @@
-# eShop Inventory on .NET Framework
+# eShop Inventory on .NET 10
 
-A lean stock management API sample built with ASP.NET Web API 2 on
-.NET Framework 4.8, Entity Framework 6, and SQL Server LocalDB.
+A lean stock management API sample built with ASP.NET Core on
+.NET 10, Entity Framework 6, and SQL Server LocalDB.
 
 The sample provides stock CRUD, ASP.NET Identity user management, and JWT bearer authentication,
-without Swagger. It represents a classic application for evaluating
-.NET migration tooling.
+without Swagger. It retains EF6 and the original Identity user store and
+password hashes while using the modern ASP.NET Core host.
 
 Stock records contain `Id`, `Sku`, and `Quantity`. The API provides five
 stock operations and an anonymous login endpoint that issues 30-minute JWTs.
@@ -13,16 +13,19 @@ See the [glossary](GLOSSARY.md) for terminology.
 
 ## Run locally
 
-Use Windows with Visual Studio 2019/2022, ASP.NET web development tooling,
-the .NET Framework 4.8 targeting pack, and SQL Server LocalDB installed.
+Use Windows with the .NET 10 SDK and SQL Server LocalDB installed.
 
 1. Open `eShopInventory.sln` and restore NuGet packages.
 2. Copy `eShopInventoryApi\AppSettings.local.config.example` to
    `eShopInventoryApi\AppSettings.local.config`. Set `SeedPassword` to a local
    password of at least six characters and `JwtSigningKey` to a separately generated Base64 key containing
    at least 32 random bytes. `SeedUserName` defaults to `merchant`.
-3. Build the solution and start `eShopInventoryApi` with IIS Express at
-   `http://localhost:61462`.
+3. Build the solution and start `eShopInventoryApi` with Kestrel:
+
+   ```powershell
+   dotnet build .\eShopInventory.sln
+   dotnet run --project .\eShopInventoryApi\eShopInventoryApi.csproj --no-build --urls http://localhost:61462
+   ```
 4. Open `eShopInventoryApi\Inventory.http` in an HTTP request client.
    Set its local password, sign in, and paste the returned `access_token`
    into its `token` variable before sending stock requests.
@@ -49,8 +52,25 @@ settings does not update an existing user.
 The initializer does not migrate or drop existing databases. If an older
 sample schema already exists or an earlier failed seed left a database without
 a user, choose a fresh database name in the `InventoryContext` connection string
-in `Web.config` after correcting the settings. Restarting does not rerun seeding
-for an existing database.
+in `App.config` after correcting the settings, then rebuild. Restarting does
+not rerun seeding for an existing database.
+
+The executable uses `System.Configuration.ConfigurationManager`, not
+`appsettings.json`, for EF6 and authentication settings. Build produces
+`eShopInventoryApi\bin\Debug\net10.0\eShopInventoryApi.dll.config` and copies
+`AppSettings.local.config` alongside it only when present. Both `dotnet run`
+and direct DLL execution read that output configuration, independently of the
+working directory:
+
+```powershell
+dotnet .\eShopInventoryApi\bin\Debug\net10.0\eShopInventoryApi.dll --urls http://localhost:61462
+dotnet test .\tests\eShopInventoryApi.Tests\eShopInventoryApi.Tests.csproj
+```
+
+Fast MSTest checks do not need LocalDB. The original ASP.NET Identity 2.2.3
+user store and password hasher remain; their Framework-only package assets
+emit `NU1701`. Runtime compatibility evidence and limitations are recorded
+in `docs\dotnet-x-to-y\plan.md`; this is not an ASP.NET Core Identity migration.
 
 ## API
 
@@ -85,20 +105,21 @@ Use Windows, PowerShell 7, SQLCMD, and an application host you started yourself.
 Use a dedicated named LocalDB instance and database whose names start with
 `eShopSmoke_` (or the retained migration fixture's `eShopBaseline_`).
 Never point this suite at a personal database. Configure `InventoryContext`
-in the host's `Web.config` (or `ConnectionStrings.InventoryContext` in
-`appsettings.json`) to the exact isolated connection string, using integrated
-security. Do not override that connection through other configuration sources.
+in `App.config` to the exact isolated connection string, using integrated
+security, and rebuild before launching. Do not override that connection through
+other configuration sources.
 The suite verifies the process command line, port ownership (including
 HTTP.sys for IIS Express), configured connection, and database identity before
-making HTTP requests. Start the host with its absolute application directory
-in its command line and wait for it to be ready.
+making HTTP requests. Launch the compiled DLL by its absolute path and wait
+for it to be ready. The suite reads the adjacent `eShopInventoryApi.dll.config`,
+not the source `App.config`.
 
 Set these environment variables in your local PowerShell session, without
 printing secret values or passing passwords on command lines:
 
 | Variable | Input |
 | --- | --- |
-| `INVENTORY_SMOKE_APP_ROOT` | Absolute application directory of your running host. |
+| `INVENTORY_SMOKE_APP_ROOT` | Absolute compiled output directory of your running host (for example `eShopInventoryApi\bin\Debug\net10.0`). |
 | `INVENTORY_SMOKE_HOST_PID` | PID of that host, not the shell or HTTP.sys PID. |
 | `INVENTORY_SMOKE_CONNECTION_STRING` | Exact configured isolated LocalDB connection string. |
 | `INVENTORY_SMOKE_USERNAME` | Existing fixture Identity username. |
@@ -114,18 +135,19 @@ example, in the same PowerShell session, load the existing ignored settings
 without displaying their values:
 
 ```powershell
-[xml]$local = Get-Content .\eShopInventoryApi\AppSettings.local.config -Raw
-[xml]$web = Get-Content .\eShopInventoryApi\Web.config -Raw
+$output = (Resolve-Path .\eShopInventoryApi\bin\Debug\net10.0).Path
+[xml]$local = Get-Content (Join-Path $output 'AppSettings.local.config') -Raw
+[xml]$app = Get-Content (Join-Path $output 'eShopInventoryApi.dll.config') -Raw
 $settings = @{}
-foreach ($entry in $web.configuration.appSettings.add) { $settings[$entry.key] = $entry.value }
+foreach ($entry in $app.configuration.appSettings.add) { $settings[$entry.key] = $entry.value }
 foreach ($entry in $local.appSettings.add) { $settings[$entry.key] = $entry.value }
 $env:INVENTORY_SMOKE_USERNAME = $settings.SeedUserName
 $env:INVENTORY_SMOKE_PASSWORD = $settings.SeedPassword
 $env:INVENTORY_SMOKE_SIGNING_KEY = $settings.JwtSigningKey
 $env:INVENTORY_SMOKE_ISSUER = $settings.JwtIssuer
 $env:INVENTORY_SMOKE_AUDIENCE = $settings.JwtAudience
-$env:INVENTORY_SMOKE_APP_ROOT = (Resolve-Path .\eShopInventoryApi).Path
-$env:INVENTORY_SMOKE_CONNECTION_STRING = ($web.configuration.connectionStrings.add |
+$env:INVENTORY_SMOKE_APP_ROOT = $output
+$env:INVENTORY_SMOKE_CONNECTION_STRING = ($app.configuration.connectionStrings.add |
     Where-Object name -eq InventoryContext).connectionString
 # Set INVENTORY_SMOKE_HOST_PID to the PID of the host you started.
 pwsh -NoProfile -File .\tests\smoke\Invoke-InventorySmoke.ps1 -BaseUrl http://localhost:61462

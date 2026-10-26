@@ -1,26 +1,25 @@
 using System.Data.Entity;
 using System.Linq;
-using System.Net;
 using System.Threading.Tasks;
-using System.Web.Http;
+using Microsoft.AspNetCore.Mvc;
 using eShopInventoryApi.DAL;
 using eShopInventoryApi.Models;
 
 namespace eShopInventoryApi.Controllers
 {
-    [RoutePrefix("api/stock")]
-    public class StockController : ApiController
+    [Route("api/stock")]
+    public class StockController : InventoryController
     {
         private readonly InventoryContext db = new InventoryContext();
 
         [HttpGet, Route("")]
-        public async Task<IHttpActionResult> GetAll()
+        public async Task<IActionResult> GetAll()
         {
             return Ok(await db.Stock.OrderBy(s => s.Id).ToListAsync());
         }
 
         [HttpGet, Route("{id:int}", Name = "GetStockRecord")]
-        public async Task<IHttpActionResult> Get(int id)
+        public async Task<IActionResult> Get(int id)
         {
             var stock = await db.Stock.FindAsync(id);
             if (stock == null)
@@ -29,12 +28,12 @@ namespace eShopInventoryApi.Controllers
         }
 
         [HttpPost, Route("")]
-        public async Task<IHttpActionResult> Create(StockRequest request)
+        public async Task<IActionResult> Create([FromBody] StockRequest request)
         {
             if (request == null)
-                return BadRequest("A stock record is required.");
+                return BadRequest(new { Message = "A stock record is required." });
             if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+                return InvalidRequest();
 
             var stock = new StockRecord { Sku = request.Sku, Quantity = request.Quantity.Value };
             db.Stock.Add(stock);
@@ -43,12 +42,12 @@ namespace eShopInventoryApi.Controllers
         }
 
         [HttpPut, Route("{id:int}")]
-        public async Task<IHttpActionResult> Update(int id, StockRequest request)
+        public async Task<IActionResult> Update(int id, [FromBody] StockRequest request)
         {
             if (request == null)
-                return BadRequest("A stock record is required.");
+                return BadRequest(new { Message = "A stock record is required." });
             if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+                return InvalidRequest();
 
             var stock = await db.Stock.FindAsync(id);
             if (stock == null)
@@ -64,11 +63,11 @@ namespace eShopInventoryApi.Controllers
             {
                 return NotFound();
             }
-            return StatusCode(HttpStatusCode.NoContent);
+            return NoContent();
         }
 
         [HttpDelete, Route("{id:int}")]
-        public async Task<IHttpActionResult> Delete(int id)
+        public async Task<IActionResult> Delete(int id)
         {
             var stock = await db.Stock.FindAsync(id);
             if (stock == null)
@@ -83,7 +82,7 @@ namespace eShopInventoryApi.Controllers
             {
                 return NotFound();
             }
-            return StatusCode(HttpStatusCode.NoContent);
+            return NoContent();
         }
 
         protected override void Dispose(bool disposing)

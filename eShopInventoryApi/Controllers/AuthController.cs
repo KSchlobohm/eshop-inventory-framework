@@ -2,7 +2,8 @@ using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Threading.Tasks;
-using System.Web.Http;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using eShopInventoryApi.App_Start;
 using eShopInventoryApi.DAL;
 using eShopInventoryApi.Models;
@@ -12,8 +13,8 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace eShopInventoryApi.Controllers
 {
-    [RoutePrefix("api/auth")]
-    public class AuthController : ApiController
+    [Route("api/auth")]
+    public class AuthController : InventoryController
     {
         private readonly InventoryContext db = new InventoryContext();
         private readonly UserManager<ApiUser> userManager;
@@ -24,12 +25,12 @@ namespace eShopInventoryApi.Controllers
         }
 
         [AllowAnonymous, HttpPost, Route("login")]
-        public async Task<IHttpActionResult> Login(LoginRequest request)
+        public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
             if (request == null)
-                return BadRequest("A login request is required.");
+                return BadRequest(new { Message = "A login request is required." });
             if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+                return InvalidRequest();
 
             var user = await userManager.FindAsync(request.UserName, request.Password);
             if (user == null)
