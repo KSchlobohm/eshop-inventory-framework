@@ -753,7 +753,7 @@ Release validation and two final saved-suite runs belong only to Step 3.
 
 ## Step 3: Migrated API -> Run AI-assisted smoke testing
 
-**Status:** pending
+**Status:** done
 
 **Source:** The in-place .NET 10 candidate with fast tests and saved smoke checks.
 
@@ -800,7 +800,173 @@ pwsh -NoProfile -File .\tests\smoke\Invoke-InventorySmoke.ps1 -BaseUrl http://lo
 Run the host in its own tracked process and wait for bounded readiness before
 the suite. Restart for persistence checks, then stop only that process.
 The observable result is a per-scenario assertion report with two successful
-runs, plus fresh/existing-database and startup-gate evidence. Results: pending.
+runs, plus fresh/existing-database and startup-gate evidence. Final results
+are recorded below; Step 2 contains the separate startup-failure matrix.
+
+### Step 3 execution evidence (2026-10-26)
+
+**Outcome:** The existing solution built in **Release**, all **29 focused
+MSTests passed**, and the unchanged saved smoke suite passed **37/37 required
+scenario groups twice**, each with exit code `0` and verified cleanup.
+The real compiled Release DLL passed existing-database restart/persistence,
+original Identity-user login with changed seed settings, and separate
+fresh-database seed/restart checks. Every required final gate passed.
+Only this plan changed; no application, project, solution, fast-test, or
+saved-suite assertion changes were needed. No sessions, push, or PR were created.
+
+**Revision and executable:** Before execution,
+`git merge-base --is-ancestor 10e05b0882d51967acecf3b55790d119fb6eb290 HEAD`
+returned `0`; `HEAD` was that exact completed Step 2 commit. Worktree:
+`C:\dev\work\copilot-worktrees\eshop-inventory-framework\kschlobohm-upgraded-waffle`;
+branch `kschlobohm-step-3-final-smoke-testing`. The tested application DLL's
+SHA-256 was
+`0EEA9D28DFFBAB5BA0A2938EE8269785031A41E340FD7BE6FB1391A3E93C0E03`.
+This evidence-only commit does not change the tested application.
+
+**Environment and packages:** Windows, PowerShell **7.6.9**, .NET SDK
+**10.0.403**, installed .NET / ASP.NET Core runtime **10.0.14**, SQLCMD, and
+the retained LocalDB **17.0.4025.3** instance. Inspected the actual restored
+`project.assets.json` files: EF6 **6.4.4**, Identity Core and EntityFramework
+**2.2.3**, native JwtBearer and MVC Newtonsoft integration **10.0.14**,
+ConfigurationManager **10.0.0**, SqlClient **4.8.6**, transitive JWT
+**8.19.2**, Newtonsoft.Json **13.0.3**, Test SDK **18.10.1**, and MSTest
+adapter/framework **4.4.1**, unchanged from Step 2.
+Release build completed with **0 errors and 8 warning occurrences**, all
+the retained Identity packages' NU1701 diagnostics repeated during restore
+and build for the two projects. No warning was suppressed.
+
+**Isolation and launch:** Copied only the explicitly approved, ignored
+Step 2 fixture settings file into this worktree. Read settings securely into
+process environment variables; no credential, signing key, token, or stored
+user/hash value was printed or committed. The SDK copied the local XML next
+to the compiled DLL. Before every launch, changed only generated, ignored
+`eShopInventoryApi.dll.config` to the dedicated fixture connection:
+
+```text
+Data Source=(LocalDB)\eShopBaseline_1fab2809;Initial Catalog=eShopBaseline_1fab2809_20261026;Integrated Security=True;MultipleActiveResultSets=True
+```
+
+The fresh case substituted only its distinct catalog name below. Source
+`App.config` remained untouched; its personal default was never launched or
+contacted. Started the previously stopped named fixture instance and verified
+port `61462` was unused. Each launch used `Start-Process` with the absolute
+Release DLL, repository-root working directory, redirected local diagnostics,
+and a tracked PID. Readiness had a 90-second deadline, two-second individual
+HTTP attempts, and required anonymous `401`. A real unexpected HTTP result
+would fail immediately. Command-line inspection confirmed the absolute
+Release DLL, and TCP inspection confirmed exclusive listener ownership.
+The saved suite independently repeated host/configuration/database preflight
+before its HTTP scenarios.
+
+**Exact commands:** Run from the worktree root. The documented
+`INVENTORY_SMOKE_APP_ROOT` was the absolute `bin\Release\net10.0` directory;
+`INVENTORY_SMOKE_HOST_PID` was the actual direct host PID, initially `5328`.
+Connection string, username, password, signing key, issuer, and audience were
+supplied through the suite's documented environment inputs, never command-line
+secrets. The local orchestration and diagnostic files are session artifacts,
+not additional application/test tooling.
+
+```powershell
+git merge-base --is-ancestor 10e05b0882d51967acecf3b55790d119fb6eb290 HEAD
+git check-ignore eShopInventoryApi\AppSettings.local.config
+dotnet --version
+dotnet --list-runtimes
+dotnet build .\eShopInventory.sln -c Release --verbosity minimal
+dotnet test .\tests\eShopInventoryApi.Tests\eShopInventoryApi.Tests.csproj -c Release --no-build --logger 'console;verbosity=normal'
+SqlLocalDB start eShopBaseline_1fab2809
+# After guarding and selecting the isolated catalog in generated XML:
+dotnet C:\dev\work\copilot-worktrees\eshop-inventory-framework\kschlobohm-upgraded-waffle\eShopInventoryApi\bin\Release\net10.0\eShopInventoryApi.dll --urls http://localhost:61462
+pwsh -NoProfile -File .\tests\smoke\Invoke-InventorySmoke.ps1 -BaseUrl http://localhost:61462
+pwsh -NoProfile -File .\tests\smoke\Invoke-InventorySmoke.ps1 -BaseUrl http://localhost:61462
+# Stop/start that same absolute DLL for the existing and fresh restart gates.
+# Final cleanup:
+SqlLocalDB stop eShopBaseline_1fab2809
+git diff --exit-code -- eShopInventoryApi tests README.md
+git diff --check
+```
+
+Supplemental persistence requests used `Invoke-WebRequest` with a 30-second
+timeout, no redirects, JSON bodies/Accept, and real issued bearer tokens held
+only in memory. SQL commands used integrated security, the explicitly named
+instance/catalog, `-l 15 -t 15 -b`, and read-only stock/user/schema queries.
+These requests supplemented rather than replaced the two saved-suite runs.
+
+**Saved-suite results:** Every expectation below matched in **both** complete
+runs, with no skipped groups. The unchanged suite and Step 1's detailed matrix
+define the exact messages, case-sensitive property sets, ModelState keys and
+arrays, JSON types, content types, and empty-body expectations.
+
+| Scenario groups | Required expectation | Run 1 | Run 2 |
+| --- | --- | --- | --- |
+| Preflight | Intended Release process, listener, executable XML, isolated DB | Pass | Pass |
+| Real Identity login | `200`; string JWT, string `token_type=Bearer`, integer `expires_in=1800`; exact snake_case keys | Pass | Pass |
+| Authorized list | `200` JSON array; exact typed PascalCase `Id/Sku/Quantity`, ascending unique IDs | Pass | Pass |
+| Missing GET/PUT/DELETE | All `404`, empty bodies, no Content-Type | Pass | Pass |
+| Wrong password | `401`, empty body, no Content-Type | Pass | Pass |
+| Null and malformed login | Each `400`, exact null-request Message | Pass | Pass |
+| Missing and overlong login | Each `400`, exact `request.UserName`/`request.Password` validation envelopes | Pass | Pass |
+| Five anonymous stock verbs | Each `401`, exact authorization Message and Bearer challenge | Pass | Pass |
+| Signed valid JWT control | Authorized `200` | Pass | Pass |
+| Malformed, expired, wrong-signature/issuer/audience JWTs | Each `401`, exact Message and challenge; expiry beyond 30-second skew | Pass | Pass |
+| Create and read-back | `201`, typed PascalCase JSON, same-origin usable Location, persisted quantity `7` | Pass | Pass |
+| POST null/malformed/missing/empty SKU + negative quantity/SKU length 65/negative quantity | All six `400` exact envelopes; no persisted mutation | Pass | Pass |
+| PUT same six invalid cases | All six `400` exact envelopes; no persisted mutation | Pass | Pass |
+| XML Accept | Still `200` JSON, identical stock array | Pass | Pass |
+| Update and read-back | `204` empty, no Content-Type; persisted changed SKU/quantity `9` | Pass | Pass |
+| Delete and read-after-delete | `204` empty, then `404` empty | Pass | Pass |
+| Original-list snapshot and finally cleanup | Exact pre-run list restored, zero run-owned rows | Pass | Pass |
+| Complete run | **37/37 groups, exit 0**, cleanup verified; independent SQL original snapshot unchanged | Pass | Pass |
+
+**Database and real-process acceptance:**
+
+| Gate | Expected | Observed |
+| --- | --- | --- |
+| Existing legacy fixture | Preserve original Framework-created stocks and Identity user/hash | Before/after exact three-row stock snapshots matched; SHA-256 fingerprints of complete stored user record and schema metadata matched without printing values |
+| First Release host | Direct compiled DLL owns listener and responds | PID **5328**, readiness `401`; both complete saved suites passed on this process |
+| Existing restart/persistence | New inventory survives stop/restart; original stored user still logs in | Created unique `STEP3-<guid>` row, ID **11**, quantity **17**; stopped PID 5328; restarted identical DLL as PID **3656**; GET confirmed exact persisted values and original-credential login returned `200` |
+| Changed seeds on existing DB | Do not reseed or replace the existing user/hash | Changed only generated local seed username/password before restart; original credentials still worked; full user and schema fingerprints unchanged |
+| Existing cleanup | Delete only owned temporary stock and preserve baseline | Deleted ID 11, verified GET `404`; exact original stocks restored; zero `SMOKE-%` or owned restart rows |
+| Separate fresh fixture | Catalog absent first, then exact seeds and a real Identity user | `eShopSmoke_Step3_6aa8832d46` confirmed absent through `DB_ID` before launch; PID **21928** created exact `1/MUG-001/25`, `2/TEE-001/40`, `3/BAG-001/15`, one user with non-null hash, and real login `200` |
+| Fresh restart | Preserve seeds and same stored user/hash | Stopped PID 21928; same DLL restarted as PID **21680**; exact stock snapshot and complete user fingerprint unchanged; login `200` |
+| Startup failure gates | Preserve the already-verified fail-before-database/listening behavior | Step 2's **10/10** separate configuration-failure launches remain the evidence for this unchanged startup code; not rerun or counted as additional Step 3 executions |
+
+Schema fingerprints covered table/column names and types, sizes, precision,
+nullability, identity/default definitions, index/key columns and flags, and
+foreign-key metadata. User fingerprints covered every `AspNetUsers` column,
+including the legacy hash. Matching fingerprints establish preservation for
+this retained isolated legacy fixture, not every possible historical database.
+The Identity sequence advanced through deleted test rows as expected; no next
+stock ID is assumed.
+
+**Setup corrections, not application failures:** Two initial local
+orchestration attempts stopped before host launch and before any HTTP gate
+or data write. The first decoded BOM-prefixed local XML as a raw string;
+the second used duplicate `name` attributes in a SQL metadata `FOR XML`
+fingerprint query. Read-only diagnosis confirmed the original stock snapshot,
+the valid stored-user fingerprint query, and SQL error 6810 for duplicate
+metadata attributes. Corrected only session-artifact XML loading and SQL
+aliases. A diagnostic-shell invocation also misplaced PowerShell `-join`
+inside native SQLCMD arguments; it performed no query and was corrected.
+Each attempt stopped its own named-instance start and restored generated
+configuration. The subsequent complete invocation passed all gates above.
+No required application failure was retried, skipped, weakened, or
+reclassified; the saved smoke suite was not edited.
+
+**Cleanup and limitations:** Stopped exactly the four owned host PIDs above,
+verified no listener remained on `61462`, and stopped the named LocalDB
+instance that this validation started. Byte-restored generated executable
+XML and local settings after stopping the hosts. Cleared secret-bearing smoke
+environment inputs. Retained all existing fixtures and the new fresh database;
+no database was dropped, deleted, reset, or reseeded. Independent final SQL
+checks confirmed the legacy stock/user/schema preservation and zero suite
+or restart rows. Source/app/test/README diffs were empty.
+
+Identity 2.2.3 remains Framework-only with unsuppressed NU1701 warnings;
+these successful Windows/EF6 paths are not an official targeting/support
+claim or exhaustive compatibility/security/load coverage. No unexpired
+original legacy JWT was retained: cross-host acceptance of an already-issued
+legacy token remains explicitly **unverified**, as allowed by the plan.
+No required final gate remains failed or inconclusive.
 
 ### Map guidance used
 
@@ -826,5 +992,5 @@ The retained Identity risk is supported by the package framework listings:
 https://www.nuget.org/packages/Microsoft.AspNet.Identity.Core/2.2.3 and
 https://www.nuget.org/packages/Microsoft.AspNet.Identity.EntityFramework/2.2.3.
 
-**Review gate:** This document is a proposed plan. No transformation step has
-been executed. Review and approve the plan before execution.
+**Original review gate:** The plan required approval before execution.
+The approved steps and their observed outcomes are now recorded above.
