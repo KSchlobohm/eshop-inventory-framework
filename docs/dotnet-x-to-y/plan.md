@@ -1,6 +1,6 @@
 ## Step 0: Baseline -> reproducible baseline
 
-**Status:** pending
+**Status:** done
 
 **Source:** The existing ASP.NET Web API 2 application on .NET Framework 4.8.
 
@@ -102,7 +102,177 @@ these checks.
 
 **Completion rule:** Attempt and document the applicable checks, failures,
 unavailable checks, and implications. A missing baseline alone does not block
-Step 1. Observed results: pending.
+Step 1. This marks completion of the baseline attempt, not comprehensive
+application verification.
+
+### Step 0 execution evidence (2026-10-26)
+
+**Outcome:** Restore, build, isolated LocalDB initialization, IIS Express
+hosting, and the representative HTTP checks below succeeded against the
+unchanged .NET Framework application at
+`f7eeb0f09f27208eb80fe296a2f8514851dd4d92`. No transformation or saved smoke
+suite was implemented. Steps 1 onward remain pending.
+
+**Environment:** Windows, PowerShell `7.6.9`, Visual Studio 18 MSBuild
+`18.9.0-preview-26325-02`, .NET Framework registry release `534296`, SQL Server
+LocalDB `17.0.4025.3`, 64-bit IIS Express. Installed .NET SDKs were
+`10.0.400-preview.0.26312.103` and `10.0.403`; the baseline used full-framework
+MSBuild, not `dotnet build`.
+
+**Isolation and fixture provenance:** Worktree
+`C:\dev\work\copilot-worktrees\eshop-inventory-framework\kschlobohm-turbo-telegram`,
+branch `kschlobohm-step-0-baseline`. Created a dedicated, previously nonexistent
+LocalDB instance `eShopBaseline_1fab2809`, with database
+`eShopBaseline_1fab2809_20261026`. The pre-start `DB_ID` query returned `NULL`;
+after app startup it returned `5`. Only this new database was queried or
+modified. No connection was made to the personal `MSSQLLocalDB` instance.
+Temporarily changed only the `InventoryContext` connection string to:
+
+```text
+Data Source=(LocalDB)\eShopBaseline_1fab2809;Initial Catalog=eShopBaseline_1fab2809_20261026;Integrated Security=True;MultipleActiveResultSets=True
+```
+
+Generated settings from the existing example into ignored
+`eShopInventoryApi\AppSettings.local.config`: a fixture-only username,
+a random 24-byte Base64 password, and a separate random 32-byte Base64 signing
+key, using `RandomNumberGenerator.GetBytes`. No secret values or tokens are
+included here or committed. `git check-ignore` confirmed the file is ignored.
+The settings file and isolated database are retained locally for later
+compatibility checks, not copied into repository evidence. Database files are
+`%USERPROFILE%\eShopBaseline_1fab2809_20261026.mdf` and
+`%USERPROFILE%\eShopBaseline_1fab2809_20261026_log.ldf`.
+The fixture contains three seeded stocks and one Identity user with a non-null
+password hash. No hash or user ID was printed. Temporary CRUD records with
+SKU `BASELINE-1fab2809`, IDs `4` and `5`, were deleted and absence verified;
+do not assume the next generated ID is `4`.
+
+**Commands and outcomes:** Run from the worktree root; all commands below
+completed successfully. The restore emitted no errors, the original build
+emitted the application DLL with no warning/error output, and no web-target
+fallback or tooling installation was necessary.
+
+```powershell
+nuget restore .\eShopInventory.sln -NonInteractive -Verbosity quiet
+msbuild .\eShopInventory.sln /t:Build /p:Configuration=Debug /p:VisualStudioVersion=18.0 /verbosity:minimal /nologo
+SqlLocalDB info
+SqlLocalDB create eShopBaseline_1fab2809 -s
+sqlcmd -S '(LocalDB)\eShopBaseline_1fab2809' -d master -E -l 15 -b -Q "SET NOCOUNT ON; SELECT DB_ID(N'eShopBaseline_1fab2809_20261026') AS ValidationDatabaseId;"
+git check-ignore eShopInventoryApi\AppSettings.local.config
+# After generating ignored settings and checking the isolated connection string:
+& 'C:\Program Files\IIS Express\iisexpress.exe' "/path:$PWD\eShopInventoryApi" /port:61462
+```
+
+Port `61462` had no listener before launch. IIS Express reported successful
+registration of `http://localhost:61462/` for this worktree and logged each
+request/status below. The first anonymous request used a 60-second timeout;
+subsequent requests used 30 seconds. `Accept: application/json` was used except
+for the explicitly XML-requested list. POST/PUT bodies used
+`Content-Type: application/json`. Authentication used the real seed user,
+Identity password verification, and a real issued JWT held only in memory.
+
+The one-time HTTP command pattern was
+`Invoke-WebRequest -Uri "http://localhost:61462$path" -Method $method
+-TimeoutSec 30 -SkipHttpErrorCheck -Headers $headers`, adding
+`-ContentType application/json -Body $body` for body-bearing requests.
+The table records the exact paths and nonsecret bodies. Login credentials
+were read from the generated XML rather than supplied as command-line literals:
+
+```powershell
+[xml]$local = Get-Content eShopInventoryApi\AppSettings.local.config
+$settings = @{}
+foreach ($entry in $local.appSettings.add) { $settings[$entry.key] = $entry.value }
+$body = @{ UserName = $settings.SeedUserName; Password = $settings.SeedPassword } | ConvertTo-Json -Compress
+$login = Invoke-WebRequest http://localhost:61462/api/auth/login -Method Post -ContentType application/json -Body $body -Headers @{ Accept = 'application/json' } -SkipHttpErrorCheck -TimeoutSec 30
+$auth = @{ Accept = 'application/json'; Authorization = ('Bearer ' + ($login.Content | ConvertFrom-Json).access_token) }
+```
+
+**Observed live results:** JSON responses below had
+`Content-Type: application/json; charset=utf-8`. "Empty" means zero response
+body and no `Content-Type` header, not a JSON `[]` payload. Stock property
+names were PascalCase; login property names were snake_case.
+
+| Request / input | Expected | Observed response |
+| --- | --- | --- |
+| Anonymous `GET /api/stock` | `401` | `401`, JSON `{"Message":"Authorization has been denied for this request."}` |
+| `POST /api/auth/login`, fixture username with `Password: incorrect-baseline-password` | `401` | `401`, empty; separately confirmed raw/content lengths `0` |
+| `POST /api/auth/login`, `null` | `400` | `400`, JSON `{"Message":"A login request is required."}` |
+| `POST /api/auth/login`, `{}` | `400` | `400`, JSON validation envelope shown below |
+| `POST /api/auth/login`, generated valid credentials | `200` | `200`, JSON `{"access_token":"<redacted string>","token_type":"Bearer","expires_in":1800}` |
+| Authenticated `GET /api/stock` | `200`, ordered seed list | `200`, exact three-record JSON shown below |
+| Authenticated `GET /api/stock/1` | `200` | `200`, JSON `{"Id":1,"Sku":"MUG-001","Quantity":25}` |
+| Authenticated `GET /api/stock/2147483647` | `404` | `404`, empty |
+| Authenticated `POST /api/stock`, `null` | `400` | `400`, JSON `{"Message":"A stock record is required."}` |
+| Authenticated `POST /api/stock`, `{"Sku":"","Quantity":-1}` | `400` | `400`, JSON validation envelope shown below |
+| Authenticated `POST /api/stock`, malformed body `{` | `400` | `400`, JSON `{"Message":"A stock record is required."}` (not a parser-detail envelope) |
+| Authenticated `GET /api/stock`, `Accept: application/xml` | JSON remains supported | `200`, same JSON seed list and JSON content type |
+| Authenticated `POST /api/stock`, `{"Sku":"BASELINE-1fab2809","Quantity":7}` | `201`, usable `Location` | `201`, JSON `{"Id":5,"Sku":"BASELINE-1fab2809","Quantity":7}`; `Location: http://localhost:61462/api/stock/5` |
+| Authenticated `GET /api/stock/5` | Persisted create | `200`, same created JSON |
+| Authenticated `PUT /api/stock/5`, `{"Sku":"BASELINE-1fab2809","Quantity":9}` | `204` | `204`, empty |
+| Authenticated `GET /api/stock/5` | Persisted update | `200`, JSON `{"Id":5,"Sku":"BASELINE-1fab2809","Quantity":9}` |
+| Authenticated `DELETE /api/stock/5` | `204` | `204`, empty |
+| Authenticated `GET /api/stock/5` | Persisted deletion | `404`, empty |
+| Authenticated final `GET /api/stock` | Seeds preserved, fixture removed | `200`, exact original seed list |
+
+Observed seed list, both before and after CRUD:
+
+```json
+[{"Id":1,"Sku":"MUG-001","Quantity":25},{"Id":2,"Sku":"TEE-001","Quantity":40},{"Id":3,"Sku":"BAG-001","Quantity":15}]
+```
+
+Observed missing-login-fields envelope:
+
+```json
+{"Message":"The request is invalid.","ModelState":{"request.UserName":["The UserName field is required."],"request.Password":["The Password field is required."]}}
+```
+
+Observed invalid-stock envelope:
+
+```json
+{"Message":"The request is invalid.","ModelState":{"request.Sku":["The Sku field is required."],"request.Quantity":["The field Quantity must be between 0 and 2147483647."]}}
+```
+
+**Evidence correction, cleanup, and final state:** The first one-time run
+captured formatted HTTP evidence into PowerShell assignments instead of
+printing it. IIS logs still recorded its requests, including fixture ID `4`;
+its cleanup/read-after-delete completed. Repeated the same representative
+requests with the evidence printer corrected, yielding the visible responses
+above and fixture ID `5`. This was an evidence-capture correction, not a retry
+of failing application behavior. SQL independently confirmed exactly three
+seed rows and one user with a stored hash:
+
+```powershell
+sqlcmd -S '(LocalDB)\eShopBaseline_1fab2809' -d eShopBaseline_1fab2809_20261026 -E -l 15 -b -Q "SET NOCOUNT ON; SELECT Id,Sku,Quantity FROM dbo.StockRecords ORDER BY Id; SELECT COUNT(*) AS SeedUserCount, SUM(CASE WHEN PasswordHash IS NOT NULL THEN 1 ELSE 0 END) AS UsersWithStoredPasswordHash FROM dbo.AspNetUsers;"
+```
+
+Stopped only the IIS Express validation process tree started by this session
+(tool shell ID `step0-iis`); confirmed no listener remained on `61462`.
+Ran `SqlLocalDB stop eShopBaseline_1fab2809`, retaining the fixture files.
+Restored only the temporary connection-string edit; then
+`git diff --exit-code -- eShopInventoryApi\Web.config` returned `0`.
+Rebuilt the restored, unchanged solution successfully using:
+
+```powershell
+& 'C:\Program Files\Microsoft Visual Studio\18\IntPreview\MSBuild\Current\Bin\MSBuild.exe' .\eShopInventory.sln /t:Build /p:Configuration=Debug /p:VisualStudioVersion=18.0 /verbosity:minimal /nologo
+```
+
+Only this plan has tracked changes. The ignored settings and build/package
+outputs remain local. **Do not launch with the restored default connection
+string for future validation:** explicitly select the isolated fixture first,
+start its named instance, and supply the retained settings without printing
+secrets. Do not delete or reset the retained fixture.
+
+**Failures, unavailable checks, and implications:** No restore/build/hosting
+blocker or unexpected response was observed in these representative checks.
+They do not establish exhaustive behavior preservation. No saved suite,
+all-verbs anonymous authorization matrix, invalid/expired/wrong-signature/
+wrong-issuer/wrong-audience JWT matrix, validation boundary matrix, startup
+failure matrix, or schema/password-hash compatibility under .NET 10 was run.
+Those remain unverified and belong to Steps 1 onward. In particular, carry
+forward the empty failed-login/`404`/`204` responses, exact `ModelState` keys,
+malformed-JSON null-request envelope, PascalCase stock JSON, and XML-request
+JSON fallback when implementing characterization checks. Retaining this
+freshly generated EF6/Identity fixture enables later existing-data checks but
+does not prove compatibility with personal or historical databases.
 
 ## Step 1: Manual API examples -> repeatable API characterization checks
 
